@@ -3,24 +3,34 @@ import { supabase } from "./supabase"
 
 function App() {
   const [session, setSession] = useState(null)
+  const [rooms, setRooms] = useState([])
+  const [currentRoom, setCurrentRoom] = useState(null)
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [username, setUsername] = useState("")
-  const [loginUsername, setLoginUsername] = useState("")
-  const [errorMessage, setErrorMessage] = useState("")
+  const [privateEmail, setPrivateEmail] = useState("")
+  const [privateUser, setPrivateUser] = useState(null)
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      if (data.session) fetchMessages()
+      if (data.session) {
+        setSession(data.session)
+        initialize(data.session.user.id)
+      }
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session)
-        if (session) fetchMessages()
-        else setMessages([])
+        if (session) initialize(session.user.id)
+        else {
+          setRooms([])
+          setCurrentRoom(null)
+          setMessages([])
+        }
       }
     )
 
@@ -29,113 +39,109 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!session) return
+  const initialize = async (userId) => {
+    await ensureGlobalRoom(userId)
+    await loadRooms(userId)
+  }
 
-    const channel = supabase
-      .channel("chat-room")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        () => fetchMessages()
-      )
-      .subscribe()
+  const ensureGlobalRoom = async (userId) => {
+    let { data } = await supabase
+      .from("chat_rooms")
+      .select("*")
+      .eq("is_private", false)
+      .maybeSingle()
 
-    return () => {
-      supabase.removeChannel(channel)
+    if (!data) {
+      const { data: newRoom } = await supabase
+        .from("chat_rooms")
+        .insert({ is_private: false })
+        .select()
+        .single()
+
+      await supabase.from("chat_members").insert({
+        room_id: newRoom.id,
+        user_id: userId
+      })
+      return
     }
-  }, [session])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    const { data: member } = await supabase
+      .from("chat_members")
+      .select("*")
+      .eq("room_id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle()
 
-  const fetchMessages = async () => {
+    if (!member) {
+      await supabase.from("chat_members").insert({
+        room_id: data.id,
+        user_id: userId
+      })
+    }
+  }
+
+  const loadRooms = async (userId) => {
+    const { data } = await supabase
+      .from("chat_members")
+      .select("room_id, chat_rooms(id,is_private)")
+      .eq("user_id", userId)
+
+    if (!data) return
+
+    const formatted = data.map(r => r.chat_rooms)
+    setRooms(formatted)
+
+    if (formatted.length > 0) {
+      setCurrentRoom(formatted[0])
+      loadMessages(formatted[0].id)
+    }
+  }
+
+  const loadMessages = async (roomId) => {
     const { data } = await supabase
       .from("messages")
-      .select(`
-        id,
-        content,
-        created_at,
-        user_id,
-        profiles ( username )
-      `)
+      .select("id,content,created_at,user_id,profiles(username)")
+      .eq("room_id", roomId)
       .order("created_at", { ascending: true })
 
     setMessages(data || [])
   }
 
-  const getInitials = (name) => {
-    if (!name) return "?"
-    return name.charAt(0).toUpperCase()
-  }
+  const handleSignup = async () => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password
+    })
 
-  const isStrongPassword = (password) => {
-    const strongRegex =
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/
-    return strongRegex.test(password)
-  }
-
-  const handleSignUp = async (email, password) => {
-    setErrorMessage("")
-
-    if (!username.trim()) {
-      return setErrorMessage("Username is required.")
-    }
-
-    if (!email || !password) {
-      return setErrorMessage("Please fill all fields.")
-    }
-
-    if (!isStrongPassword(password)) {
-      return setErrorMessage(
-        "Password must be at least 8 characters long and include uppercase, lowercase and a number."
-      )
-    }
-
-    const { data, error } = await supabase.auth.signUp({ email, password })
-
-    if (error) {
-      return setErrorMessage(error.message)
-    }
+    if (error) return alert(error.message)
 
     await supabase.from("profiles").insert({
       id: data.user.id,
-      username: username.trim()
+      username,
+      email
     })
 
-    setErrorMessage("Account created successfully! You can now login.")
+    alert("Account created. You can login now.")
+    setEmail("")
+    setPassword("")
+    setUsername("")
   }
 
-  const handleLogin = async (email, password) => {
-    setErrorMessage("")
-
+  const handleLogin = async () => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     })
 
-    if (error) {
-      return setErrorMessage("Invalid email or password.")
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", data.user.id)
-      .single()
-
-    if (
-      !profile ||
-      profile.username.trim().toLowerCase() !==
-        loginUsername.trim().toLowerCase()
-    ) {
-      setErrorMessage("Username does not match this account.")
-      await supabase.auth.signOut()
-      return
-    }
+    if (error) return alert(error.message)
 
     setSession(data.session)
+    initialize(data.user.id)
+  }
+
+  const logout = async () => {
+    await supabase.auth.signOut()
+    setSession(null)
   }
 
   const sendMessage = async () => {
@@ -143,66 +149,89 @@ function App() {
 
     await supabase.from("messages").insert({
       content: newMessage,
-      user_id: session.user.id
+      user_id: session.user.id,
+      room_id: currentRoom.id
     })
 
     setNewMessage("")
+    loadMessages(currentRoom.id)
+  }
+
+  const searchUser = async () => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id,username,email")
+      .eq("email", privateEmail)
+      .maybeSingle()
+
+    if (data) setPrivateUser(data)
+    else alert("User not found")
+  }
+
+  const createPrivateRoom = async () => {
+    if (!privateUser) return
+
+    const { data: room } = await supabase
+      .from("chat_rooms")
+      .insert({ is_private: true })
+      .select()
+      .single()
+
+    await supabase.from("chat_members").insert([
+      { room_id: room.id, user_id: session.user.id },
+      { room_id: room.id, user_id: privateUser.id }
+    ])
+
+    await loadRooms(session.user.id)
+    setPrivateEmail("")
+    setPrivateUser(null)
+  }
+
+  const getInitial = (name) => {
+    if (!name) return "?"
+    return name.charAt(0).toUpperCase()
   }
 
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-gray-950 to-black text-white">
-        <div className="w-96 p-10 rounded-3xl bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl">
-          <h1 className="text-3xl font-bold text-center mb-8">CodeElite Messenger</h1>
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+        <div className="w-96 p-8 bg-white/10 rounded-xl space-y-4">
+          <h2 className="text-xl font-bold text-center">Login / Signup</h2>
 
-          {errorMessage && (
-            <div className="mb-4 p-3 rounded-xl bg-red-500/20 border border-red-500 text-sm text-red-300">
-              {errorMessage}
-            </div>
-          )}
-
-          <input id="email" placeholder="Email" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
-          <input id="password" type="password" placeholder="Password" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
           <input
-            placeholder="Username"
-            value={loginUsername}
-            onChange={e => setLoginUsername(e.target.value)}
-            className="w-full mb-4 p-3 rounded-xl bg-white/10 border border-white/20"
+            placeholder="Email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className="w-full p-2 rounded bg-white/10"
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className="w-full p-2 rounded bg-white/10"
+          />
+
+          <input
+            placeholder="Username (for signup)"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            className="w-full p-2 rounded bg-white/10"
           />
 
           <button
-            onClick={() =>
-              handleLogin(
-                document.getElementById("email").value,
-                document.getElementById("password").value
-              )
-            }
-            className="w-full py-3 mb-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 transition"
+            onClick={handleLogin}
+            className="w-full py-2 bg-indigo-600 rounded"
           >
             Login
           </button>
 
-          <div className="border-t border-white/10 my-6"></div>
-
-          <input id="s_email" placeholder="Email" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
-          <input id="s_password" type="password" placeholder="Password" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
-          <input
-            placeholder="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            className="w-full mb-4 p-3 rounded-xl bg-white/10 border border-white/20"
-          />
-
           <button
-            onClick={() =>
-              handleSignUp(
-                document.getElementById("s_email").value,
-                document.getElementById("s_password").value
-              )
-            }
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition"
+            onClick={handleSignup}
+            className="w-full py-2 bg-emerald-600 rounded"
           >
-            Create Account
+            Signup
           </button>
         </div>
       </div>
@@ -210,40 +239,85 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-gray-950 to-black text-white">
-      <div className="w-full min-h-screen flex flex-col bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+    <div className="min-h-screen flex bg-slate-900 text-white">
 
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/30">
-          <h2 className="text-lg font-semibold">CodeElite Messenger</h2>
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut()
-              setSession(null)
+      <div className="w-72 border-r border-white/10 p-4 space-y-4">
+        <h2 className="font-semibold text-lg">Chats</h2>
+
+        {rooms.map(room => (
+          <div
+            key={room.id}
+            onClick={() => {
+              setCurrentRoom(room)
+              loadMessages(room.id)
             }}
-            className="px-4 py-1.5 text-sm rounded-xl bg-red-500 hover:bg-red-600 transition"
+            className="p-3 bg-white/10 rounded cursor-pointer hover:bg-white/20"
+          >
+            {room.is_private ? "Private Chat" : "Global Room"}
+          </div>
+        ))}
+
+        <div className="pt-6 border-t border-white/10">
+          <h3 className="text-sm mb-2">Start Private Chat</h3>
+
+          <input
+            placeholder="User email"
+            value={privateEmail}
+            onChange={e => setPrivateEmail(e.target.value)}
+            className="w-full p-2 rounded bg-white/10 mb-2"
+          />
+
+          <button
+            onClick={searchUser}
+            className="w-full py-2 bg-indigo-600 rounded mb-2"
+          >
+            Search
+          </button>
+
+          {privateUser && (
+            <div className="p-2 bg-white/10 rounded flex justify-between">
+              <span>{privateUser.username}</span>
+              <button
+                onClick={createPrivateRoom}
+                className="px-2 bg-green-600 rounded"
+              >
+                Add
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col">
+        <div className="flex justify-between p-4 border-b border-white/10">
+          <span>
+            {currentRoom?.is_private ? "Private Chat" : "Global Room"}
+          </span>
+          <button
+            onClick={logout}
+            className="px-4 py-2 bg-red-600 rounded"
           >
             Logout
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.map(msg => {
             const isMe = msg.user_id === session.user.id
             const userName = msg.profiles?.username || "Unknown"
 
             return (
               <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-md px-5 py-4 rounded-2xl ${
-                  isMe
-                    ? "bg-indigo-600 rounded-br-none"
-                    : "bg-white/10 rounded-bl-none"
+                <div className={`px-4 py-3 rounded-xl max-w-md ${
+                  isMe ? "bg-indigo-600" : "bg-white/10"
                 }`}>
-                  <div className="text-xs opacity-60 mb-1">
-                    {userName} • {new Date(msg.created_at).toLocaleTimeString()}
+                  <div className="flex items-center gap-2 text-xs opacity-70 mb-1">
+                    <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
+                      {getInitial(userName)}
+                    </div>
+                    {userName}
                   </div>
-                  <div className="text-sm">
-                    {msg.content}
-                  </div>
+                  <div>{msg.content}</div>
                 </div>
               </div>
             )
@@ -251,21 +325,20 @@ function App() {
           <div ref={messagesEndRef}></div>
         </div>
 
-        <div className="px-6 py-4 border-t border-white/10 bg-black/30 flex gap-4">
+        <div className="p-4 border-t border-white/10 flex gap-2">
           <input
             value={newMessage}
             onChange={e => setNewMessage(e.target.value)}
-            placeholder="Write a message..."
-            className="flex-1 px-5 py-3 rounded-2xl bg-white/10 border border-white/20 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="flex-1 p-3 rounded bg-white/10"
+            placeholder="Write message..."
           />
           <button
             onClick={sendMessage}
-            className="px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 transition"
+            className="px-6 bg-indigo-600 rounded"
           >
             Send
           </button>
         </div>
-
       </div>
     </div>
   )
