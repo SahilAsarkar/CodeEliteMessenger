@@ -38,6 +38,42 @@ function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (!currentRoom) return
+
+    loadMessages(currentRoom.id)
+
+    const channel = supabase
+      .channel(`room-${currentRoom.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `room_id=eq.${currentRoom.id}`
+        },
+        async (payload) => {
+          const { data } = await supabase
+            .from("messages")
+            .select("id,content,created_at,user_id,profiles(username)")
+            .eq("id", payload.new.id)
+            .single()
+
+          setMessages(prev => [...prev, data])
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [currentRoom])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
   const initialize = async (userId) => {
     await ensureGlobalRoom(userId)
     await loadRooms(userId)
@@ -61,21 +97,20 @@ function App() {
         room_id: newRoom.id,
         user_id: userId
       })
-      return
-    }
+    } else {
+      const { data: member } = await supabase
+        .from("chat_members")
+        .select("*")
+        .eq("room_id", data.id)
+        .eq("user_id", userId)
+        .maybeSingle()
 
-    const { data: member } = await supabase
-      .from("chat_members")
-      .select("*")
-      .eq("room_id", data.id)
-      .eq("user_id", userId)
-      .maybeSingle()
-
-    if (!member) {
-      await supabase.from("chat_members").insert({
-        room_id: data.id,
-        user_id: userId
-      })
+      if (!member) {
+        await supabase.from("chat_members").insert({
+          room_id: data.id,
+          user_id: userId
+        })
+      }
     }
   }
 
@@ -100,7 +135,6 @@ function App() {
 
     if (formatted.length > 0) {
       setCurrentRoom(formatted[0])
-      loadMessages(formatted[0].id)
     }
   }
 
@@ -119,7 +153,7 @@ function App() {
       .from("profiles")
       .select("username")
       .eq("id", other.user_id)
-      .maybeSingle()
+      .single()
 
     if (profile) {
       setRoomNames(prev => ({
@@ -165,7 +199,6 @@ function App() {
 
   const logout = async () => {
     await supabase.auth.signOut()
-    setSession(null)
   }
 
   const sendMessage = async () => {
@@ -178,7 +211,6 @@ function App() {
     })
 
     setNewMessage("")
-    loadMessages(currentRoom.id)
   }
 
   const searchUser = async () => {
@@ -196,26 +228,6 @@ function App() {
 
   const createPrivateRoom = async () => {
     if (!privateUser) return
-
-    const { data: existing } = await supabase
-      .from("chat_members")
-      .select("room_id")
-      .eq("user_id", session.user.id)
-
-    for (let r of existing) {
-      const { data: members } = await supabase
-        .from("chat_members")
-        .select("user_id")
-        .eq("room_id", r.room_id)
-
-      if (
-        members.length === 2 &&
-        members.some(m => m.user_id === privateUser.id)
-      ) {
-        alert("Private chat already exists")
-        return
-      }
-    }
 
     const { data: room } = await supabase
       .from("chat_rooms")
@@ -261,13 +273,10 @@ function App() {
         {rooms.map(room => (
           <div
             key={room.id}
-            onClick={() => {
-              setCurrentRoom(room)
-              loadMessages(room.id)
-            }}
+            onClick={() => setCurrentRoom(room)}
             className="p-3 bg-white/10 rounded cursor-pointer hover:bg-white/20"
           >
-            {roomNames[room.id] || "Loading..."}
+            {roomNames[room.id]}
           </div>
         ))}
 
@@ -321,11 +330,19 @@ function App() {
               </div>
             )
           })}
+          <div ref={messagesEndRef}></div>
         </div>
 
         <div className="p-4 border-t border-white/10 flex gap-2">
-          <input value={newMessage} onChange={e => setNewMessage(e.target.value)} className="flex-1 p-3 rounded bg-white/10" placeholder="Write message..." />
-          <button onClick={sendMessage} className="px-6 bg-indigo-600 rounded">Send</button>
+          <input
+            value={newMessage}
+            onChange={e => setNewMessage(e.target.value)}
+            className="flex-1 p-3 rounded bg-white/10"
+            placeholder="Write message..."
+          />
+          <button onClick={sendMessage} className="px-6 bg-indigo-600 rounded">
+            Send
+          </button>
         </div>
       </div>
     </div>
