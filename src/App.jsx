@@ -7,6 +7,7 @@ function App() {
   const [newMessage, setNewMessage] = useState("")
   const [username, setUsername] = useState("")
   const [loginUsername, setLoginUsername] = useState("")
+  const [errorMessage, setErrorMessage] = useState("")
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
@@ -69,23 +70,54 @@ function App() {
     return name.charAt(0).toUpperCase()
   }
 
+  const isStrongPassword = (password) => {
+    const strongRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/
+    return strongRegex.test(password)
+  }
+
   const handleSignUp = async (email, password) => {
-    if (!username.trim()) return alert("Username required")
+    setErrorMessage("")
+
+    if (!username.trim()) {
+      return setErrorMessage("Username is required.")
+    }
+
+    if (!email || !password) {
+      return setErrorMessage("Please fill all fields.")
+    }
+
+    if (!isStrongPassword(password)) {
+      return setErrorMessage(
+        "Password must be at least 8 characters long and include uppercase, lowercase and a number."
+      )
+    }
 
     const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) return alert(error.message)
+
+    if (error) {
+      return setErrorMessage(error.message)
+    }
 
     await supabase.from("profiles").insert({
       id: data.user.id,
       username: username.trim()
     })
 
-    alert("Account created successfully!")
+    setErrorMessage("Account created successfully! You can now login.")
   }
 
   const handleLogin = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return alert(error.message)
+    setErrorMessage("")
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    })
+
+    if (error) {
+      return setErrorMessage("Invalid email or password.")
+    }
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -98,7 +130,7 @@ function App() {
       profile.username.trim().toLowerCase() !==
         loginUsername.trim().toLowerCase()
     ) {
-      alert("Username does not match")
+      setErrorMessage("Username does not match this account.")
       await supabase.auth.signOut()
       return
     }
@@ -122,6 +154,12 @@ function App() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-gray-950 to-black text-white">
         <div className="w-96 p-10 rounded-3xl bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl">
           <h1 className="text-3xl font-bold text-center mb-8">SupaChat</h1>
+
+          {errorMessage && (
+            <div className="mb-4 p-3 rounded-xl bg-red-500/20 border border-red-500 text-sm text-red-300">
+              {errorMessage}
+            </div>
+          )}
 
           <input id="email" placeholder="Email" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
           <input id="password" type="password" placeholder="Password" className="w-full mb-3 p-3 rounded-xl bg-white/10 border border-white/20" />
@@ -189,46 +227,27 @@ function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
-
           {messages.map(msg => {
             const isMe = msg.user_id === session.user.id
             const userName = msg.profiles?.username || "Unknown"
 
             return (
               <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-
-                {!isMe && (
-                  <div className="w-10 h-10 mr-3 flex items-center justify-center rounded-full bg-indigo-600 font-bold">
-                    {getInitials(userName)}
-                  </div>
-                )}
-
                 <div className={`max-w-md px-5 py-4 rounded-2xl ${
                   isMe
                     ? "bg-indigo-600 rounded-br-none"
                     : "bg-white/10 rounded-bl-none"
                 }`}>
-
                   <div className="text-xs opacity-60 mb-1">
                     {userName} • {new Date(msg.created_at).toLocaleTimeString()}
                   </div>
-
                   <div className="text-sm">
                     {msg.content}
                   </div>
-
                 </div>
-
-                {isMe && (
-                  <div className="w-10 h-10 ml-3 flex items-center justify-center rounded-full bg-emerald-600 font-bold">
-                    {getInitials(userName)}
-                  </div>
-                )}
-
               </div>
             )
           })}
-
           <div ref={messagesEndRef}></div>
         </div>
 
