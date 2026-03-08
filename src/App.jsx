@@ -65,9 +65,7 @@ function App() {
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => supabase.removeChannel(channel)
   }, [currentRoom])
 
   useEffect(() => {
@@ -249,55 +247,70 @@ function App() {
 
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="w-96 p-8 bg-white/10 rounded-xl space-y-4">
-          <h2 className="text-xl font-bold text-center">Login / Signup</h2>
+      <div className="min-h-screen flex items-center justify-center bg-[#0f172a] text-white">
+        <div className="w-96 p-8 bg-white/5 rounded-2xl backdrop-blur-lg shadow-xl space-y-4">
+          <h2 className="text-xl font-semibold text-center">Login / Signup</h2>
 
-          <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-2 rounded bg-white/10" />
-          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-2 rounded bg-white/10" />
-          <input placeholder="Username (for signup)" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-2 rounded bg-white/10" />
+          <input placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 rounded-lg bg-white/10 outline-none" />
+          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 rounded-lg bg-white/10 outline-none" />
+          <input placeholder="Username (for signup)" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 rounded-lg bg-white/10 outline-none" />
 
-          <button onClick={handleLogin} className="w-full py-2 bg-indigo-600 rounded">Login</button>
-          <button onClick={handleSignup} className="w-full py-2 bg-emerald-600 rounded">Signup</button>
+          <button onClick={handleLogin} className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg">Login</button>
+          <button onClick={handleSignup} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg">Signup</button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-900 text-white">
+    <div className="min-h-screen flex bg-[#0f172a] text-white">
 
-      <div className="w-72 border-r border-white/10 p-4 space-y-4">
-        <h2 className="font-semibold text-lg">Chats</h2>
+      <div className="w-80 bg-[#111827] border-r border-white/10 flex flex-col">
 
-        {rooms.map(room => (
-          <div
-            key={room.id}
-            onClick={() => setCurrentRoom(room)}
-            className="p-3 bg-white/10 rounded cursor-pointer hover:bg-white/20"
-          >
-            {roomNames[room.id]}
-          </div>
-        ))}
+        <div className="p-6 border-b border-white/10">
+          <h2 className="text-xl font-semibold">Chats</h2>
+        </div>
 
-        <div className="pt-6 border-t border-white/10">
-          <h3 className="text-sm mb-2">Start Private Chat</h3>
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {rooms.map(room => (
+            <div
+              key={room.id}
+              onClick={() => setCurrentRoom(room)}
+              className={`p-4 rounded-xl cursor-pointer transition-all
+                ${currentRoom?.id === room.id
+                  ? "bg-indigo-600"
+                  : "bg-white/5 hover:bg-white/10"
+                }`}
+            >
+              {roomNames[room.id]}
+            </div>
+          ))}
+        </div>
+
+        <div className="p-4 border-t border-white/10 space-y-3">
+          <h3 className="text-sm text-gray-400">Start Private Chat</h3>
 
           <input
             placeholder="User email"
             value={privateEmail}
             onChange={e => setPrivateEmail(e.target.value)}
-            className="w-full p-2 rounded bg-white/10 mb-2"
+            className="w-full p-3 rounded-lg bg-white/5 outline-none"
           />
 
-          <button onClick={searchUser} className="w-full py-2 bg-indigo-600 rounded mb-2">
+          <button
+            onClick={searchUser}
+            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg"
+          >
             Search
           </button>
 
           {privateUser && (
-            <div className="p-2 bg-white/10 rounded flex justify-between">
+            <div className="p-3 bg-white/5 rounded-lg flex justify-between items-center">
               <span>{privateUser.username}</span>
-              <button onClick={createPrivateRoom} className="px-2 bg-green-600 rounded">
+              <button
+                onClick={createPrivateRoom}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 rounded-md text-sm"
+              >
                 Add
               </button>
             </div>
@@ -306,26 +319,27 @@ function App() {
       </div>
 
       <div className="flex-1 flex flex-col">
-        <div className="flex justify-between p-4 border-b border-white/10">
-          <span>{roomNames[currentRoom?.id]}</span>
-          <button onClick={logout} className="px-4 py-2 bg-red-600 rounded">Logout</button>
+
+        <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center">
+          <span className="text-lg font-semibold">{roomNames[currentRoom?.id]}</span>
+          <button onClick={logout} className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg">Logout</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
           {messages.map(msg => {
             const isMe = msg.user_id === session.user.id
             const userName = msg.profiles?.username || "Unknown"
 
             return (
               <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                <div className={`px-4 py-3 rounded-xl max-w-md ${isMe ? "bg-indigo-600" : "bg-white/10"}`}>
-                  <div className="flex items-center gap-2 text-xs opacity-70 mb-1">
-                    <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center">
-                      {getInitial(userName)}
-                    </div>
-                    {userName}
-                  </div>
-                  <div>{msg.content}</div>
+                <div className={`max-w-md px-5 py-3 rounded-2xl shadow-md
+                  ${isMe
+                    ? "bg-indigo-600 rounded-br-sm"
+                    : "bg-white/10 rounded-bl-sm"
+                  }`}
+                >
+                  <div className="text-xs opacity-60 mb-1">{userName}</div>
+                  <div className="text-sm">{msg.content}</div>
                 </div>
               </div>
             )
@@ -333,17 +347,23 @@ function App() {
           <div ref={messagesEndRef}></div>
         </div>
 
-        <div className="p-4 border-t border-white/10 flex gap-2">
-          <input
-            value={newMessage}
-            onChange={e => setNewMessage(e.target.value)}
-            className="flex-1 p-3 rounded bg-white/10"
-            placeholder="Write message..."
-          />
-          <button onClick={sendMessage} className="px-6 bg-indigo-600 rounded">
-            Send
-          </button>
+        <div className="p-6 border-t border-white/10">
+          <div className="flex gap-4">
+            <input
+              value={newMessage}
+              onChange={e => setNewMessage(e.target.value)}
+              placeholder="Write a message..."
+              className="flex-1 px-5 py-3 rounded-full bg-white/5 outline-none"
+            />
+            <button
+              onClick={sendMessage}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-full"
+            >
+              Send
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   )
