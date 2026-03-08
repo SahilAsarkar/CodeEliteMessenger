@@ -153,7 +153,7 @@ function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-gray-950 to-black text-white">
         <div className="w-96 p-10 rounded-3xl bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl">
-          <h1 className="text-3xl font-bold text-center mb-8">SupaChat</h1>
+          <h1 className="text-3xl font-bold text-center mb-8">CodeElite Messenger</h1>
 
           {errorMessage && (
             <div className="mb-4 p-3 rounded-xl bg-red-500/20 border border-red-500 text-sm text-red-300">
