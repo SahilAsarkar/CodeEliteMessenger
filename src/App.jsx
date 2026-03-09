@@ -81,21 +81,31 @@ function App() {
   }
 
   const ensureGlobalRoom = async (userId) => {
-    let { data } = await supabase
+    let { data: globalRoom } = await supabase
       .from("chat_rooms")
       .select("*")
       .eq("is_private", false)
       .maybeSingle()
 
-    if (!data) {
+    if (!globalRoom) {
       const { data: newRoom } = await supabase
         .from("chat_rooms")
         .insert({ is_private: false })
         .select()
         .single()
+      globalRoom = newRoom
+    }
 
+    const { data: existing } = await supabase
+      .from("chat_members")
+      .select("*")
+      .eq("room_id", globalRoom.id)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (!existing) {
       await supabase.from("chat_members").insert({
-        room_id: newRoom.id,
+        room_id: globalRoom.id,
         user_id: userId
       })
     }
@@ -158,7 +168,7 @@ function App() {
     setMessages(data || [])
   }
 
-  // ---------------- ACTIONS ----------------
+  // ---------------- AUTH ACTIONS ----------------
   const handleSignup = async () => {
     const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) return alert(error.message)
@@ -233,7 +243,6 @@ function App() {
 
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : "?"
 
-  // ---------------- LOGIN UI ----------------
   if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f172a] text-white px-4">
@@ -255,7 +264,7 @@ function App() {
 
           <input
             className="w-full p-3 rounded-lg bg-white/10"
-            placeholder="Username (for signup)"
+            placeholder="Username (signup)"
             value={username}
             onChange={e => setUsername(e.target.value)}
           />
@@ -274,7 +283,6 @@ function App() {
     )
   }
 
-  // ---------------- MAIN UI ----------------
   return (
     <div className="h-screen flex bg-[#0f172a] text-white">
 
@@ -282,8 +290,12 @@ function App() {
       <div className={`w-full md:w-80 bg-[#111827] border-r border-white/10 flex flex-col
         ${currentRoom ? "hidden md:flex" : "flex"}`}>
 
-        <div className="p-4 border-b border-white/10">
+        <div className="p-4 border-b border-white/10 flex justify-between items-center">
           <h2 className="text-lg font-semibold">Chats</h2>
+          <button onClick={logout}
+            className="bg-red-600 px-3 py-1 rounded text-xs">
+            Logout
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -291,7 +303,7 @@ function App() {
             <div
               key={room.id}
               onClick={() => setCurrentRoom(room)}
-              className={`p-3 rounded-xl cursor-pointer
+              className={`p-3 rounded-xl cursor-pointer text-sm
                 ${currentRoom?.id === room.id
                   ? "bg-indigo-600"
                   : "bg-white/5 hover:bg-white/10"
@@ -302,7 +314,7 @@ function App() {
           ))}
         </div>
 
-        {/* Private Chat Section */}
+        {/* SEARCH SECTION */}
         <div className="p-4 border-t border-white/10 space-y-3">
           <h3 className="text-sm text-gray-400">Start Private Chat</h3>
 
@@ -310,22 +322,22 @@ function App() {
             placeholder="User email"
             value={privateEmail}
             onChange={e => setPrivateEmail(e.target.value)}
-            className="w-full p-3 rounded-lg bg-white/10"
+            className="w-full p-2 rounded bg-white/10 text-sm"
           />
 
           <button
             onClick={searchUser}
-            className="w-full py-2 bg-indigo-600 rounded-lg"
+            className="w-full py-2 bg-indigo-600 rounded text-sm"
           >
             Search
           </button>
 
           {privateUser && (
-            <div className="p-3 bg-white/10 rounded-lg flex justify-between items-center">
+            <div className="p-2 bg-white/10 rounded flex justify-between items-center text-sm">
               <span>{privateUser.username}</span>
               <button
                 onClick={createPrivateRoom}
-                className="px-3 py-1 bg-emerald-600 rounded-md text-sm"
+                className="px-2 py-1 bg-emerald-600 rounded text-xs"
               >
                 Add
               </button>
@@ -338,22 +350,15 @@ function App() {
       {currentRoom && (
         <div className="flex-1 flex flex-col">
 
-          <div className="px-4 py-3 border-b border-white/10 flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setCurrentRoom(null)}
-                className="md:hidden bg-white/10 px-3 py-1 rounded text-sm">
-                Back
-              </button>
-              <span className="font-semibold">
-                {roomNames[currentRoom?.id]}
-              </span>
-            </div>
-
-            <button onClick={logout}
-              className="px-3 py-1 bg-red-600 rounded text-sm">
-              Logout
+          <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3">
+            <button
+              onClick={() => setCurrentRoom(null)}
+              className="md:hidden bg-white/10 px-3 py-1 rounded text-sm">
+              Back
             </button>
+            <span className="font-semibold">
+              {roomNames[currentRoom?.id]}
+            </span>
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -404,6 +409,5 @@ function App() {
     </div>
   )
 }
-
 
 export default App
